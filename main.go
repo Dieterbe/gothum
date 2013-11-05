@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"flag"
 	"fmt"
 	"github.com/nfnt/resize"
 	"image"
@@ -17,19 +18,28 @@ import (
 	"strings"
 )
 
+var resize_threads int
+var in, out string
+
+func init() {
+	flag.IntVar(&resize_threads, "resize_threads", 2, "how many concurrent resizer threads (each can max out a cpu core)")
+	flag.StringVar(&in, "in", "", "input directory")
+	flag.StringVar(&out, "out", "", "output (thumbnail) directory")
+}
 func dieIfError(err error) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Fatal error: %s\n", err.Error())
 		os.Exit(1)
 	}
 }
-
 func main() {
-	if len(os.Args) < 3 {
-		panic("gothum <in> <out> (out being thumbnails dir without 'normal' etc suffix)")
+	flag.Parse()
+	if in == "" {
+		log.Fatal("no input directory specified")
 	}
-	in := os.Args[1]
-	out := os.Args[2]
+	if out == "" {
+		log.Fatal("no output directory specified")
+	}
 	list, err := ioutil.ReadDir(in)
 	dieIfError(err)
 	abspath, err := filepath.Abs(in)
@@ -52,7 +62,7 @@ func main() {
 		config, _, err := image.DecodeConfig(file_in)
 		file_in.Seek(0, 0)
 		var img_in image.Image
-		img_in, _,  err = image.Decode(file_in)
+		img_in, _, err = image.Decode(file_in)
 		if err != nil {
 			fmt.Printf("WARNING: unsupported image format: '%s'. skipping.\n", mime)
 			continue
