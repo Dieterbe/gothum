@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 var resize_threads int
@@ -32,47 +33,50 @@ func dieIfError(err error) {
 		os.Exit(1)
 	}
 }
-func main() {
-	flag.Parse()
-	if in == "" {
-		log.Fatal("no input directory specified")
-	}
-	if out == "" {
-		log.Fatal("no output directory specified")
-	}
-	list, err := ioutil.ReadDir(in)
-	dieIfError(err)
-	abspath, err := filepath.Abs(in)
-	dieIfError(err)
-	for _, f := range list {
-		name := f.Name()
-		ext := filepath.Ext(name)
-		mime := mime.TypeByExtension(ext)
-		if !strings.HasPrefix(mime, "image/") {
-			continue
+
+func IoWorker(dir_in string) (paths chan string) {
+	paths = make(chan string)
+	go func() {
+		list, err := ioutil.ReadDir(dir_in)
+		dieIfError(err)
+		abspath, err := filepath.Abs(dir_in)
+		dieIfError(err)
+		for _, f := range list {
+			name := f.Name()
+			ext := filepath.Ext(name)
+			mime := mime.TypeByExtension(ext)
+			if !strings.HasPrefix(mime, "image/") {
+				continue
+			}
+			paths <- fmt.Sprintf("%s/%s", abspath, name)
 		}
-		abspath_in := fmt.Sprintf("%s/%s", abspath, name)
+		close(paths)
+	}()
+	return paths
+}
+func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
+	for abspath_in := range paths {
+		fmt.Println("## [", i, "]", abspath_in)
 		fileUri_in := fmt.Sprintf("file://%s", abspath_in)
-		fmt.Println("##", abspath_in)
 		h := md5.New()
 		io.WriteString(h, fileUri_in)
 		pathmd5 := fmt.Sprintf("%x", h.Sum(nil))
 		file_in, err := os.Open(abspath_in)
 		dieIfError(err)
 		config, _, err := image.DecodeConfig(file_in)
-		file_in.Seek(0, 0)
+		if err != nil {
+			fmt.Printf("WARNING. Could not decode image config '%s', skipping: %s\n", abspath_in, err)
+			continue
+		}
+		file_in.Seek(0, os.SEEK_SET)
 		var img_in image.Image
 		img_in, _, err = image.Decode(file_in)
 		if err != nil {
-			fmt.Printf("WARNING: unsupported image format: '%s'. skipping.\n", mime)
+			fmt.Printf("WARNING. Could not decode image '%s', skipping: %s\n", abspath_in, err)
 			continue
 		}
 
 		file_in.Close()
-		if err != nil {
-			fmt.Printf("WARNING. Could not decode '%s', so i'm skipping it: %s\n", name, err)
-			continue
-		}
 		width := uint(0)
 		height := uint(0)
 		if config.Width > config.Height {
@@ -82,13 +86,31 @@ func main() {
 		}
 		img_out := resize.Resize(width, height, img_in, resize.NearestNeighbor)
 		path_out := fmt.Sprintf("%s/%s.png", out, pathmd5)
-		fmt.Printf("--> %s\n", path_out)
+		fmt.Printf("[%d] --> %s\n", i, path_out)
 		file_out, err := os.Create(path_out)
 		if err != nil {
 			log.Fatal(err)
 		}
-		defer file_out.Close()
 		err = png.Encode(file_out, img_out)
+		file_out.Close()
 		dieIfError(err)
 	}
+	wg.Done()
+}
+func main() {
+	flag.Parse()
+	if in == "" {
+		log.Fatal("no input directory specified")
+	}
+	if out == "" {
+		log.Fatal("no output directory specified")
+	}
+	var wg sync.WaitGroup
+	paths := IoWorker(in)
+	var i int
+	wg.Add(resize_threads)
+	for i = 1; i <= resize_threads; i++ {
+		go ResizeWorker(i, paths, out, &wg)
+	}
+	wg.Wait()
 }
