@@ -4,7 +4,7 @@ import (
 	"crypto/md5"
 	"flag"
 	"fmt"
-	"github.com/nfnt/resize"
+	"github.com/disintegration/imaging"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
@@ -84,14 +84,14 @@ func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
 		}
 
 		file_in.Close()
-		width := uint(0)
-		height := uint(0)
+		width := 0
+		height := 0
 		if config.Width > config.Height {
 			width = 256
 		} else {
 			height = 256
 		}
-		img_out := resize.Resize(width, height, img_in, resize.NearestNeighbor)
+		img_out := imaging.Resize(img_in, width, height, imaging.CatmullRom)
 		fmt.Printf("[%d] --> %s\n", i, path_out)
 		file_out, err := os.Create(path_out)
 		if err != nil {
