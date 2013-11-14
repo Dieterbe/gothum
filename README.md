@@ -11,3 +11,5 @@ it will automatically process all images
 This is great simple standalane thumbnail program that
 makes it easy to create thumbnails according to the
 [freedesktop thumbnail spec](http://specifications.freedesktop.org/thumbnail-spec/thumbnail-spec-latest.html)
+
+it tries to use graphicsmagick first, and if it fails, tries in pure-Go.

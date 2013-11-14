@@ -14,6 +14,7 @@ import (
 	"log"
 	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -57,29 +58,36 @@ func IoWorker(dir_in string) (paths chan string) {
 }
 func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
 	for abspath_in := range paths {
-		fmt.Println("## [", i, "]", abspath_in)
+		fmt.Printf("#%d in:  %s\n", i, abspath_in)
 		fileUri_in := fmt.Sprintf("file://%s", abspath_in)
 		h := md5.New()
 		io.WriteString(h, fileUri_in)
 		pathmd5 := fmt.Sprintf("%x", h.Sum(nil))
 		path_out := fmt.Sprintf("%s/%s.png", out, pathmd5)
+		fmt.Printf("#%d out: %s\n", i, path_out)
 		_, err := os.Stat(path_out)
 		if err == nil {
-			fmt.Printf("[%d] %s already exists! skipping\n", i, path_out)
+			fmt.Printf("#%d thumb already exists! skipping\n", i)
 			continue
 		}
+		err = exec.Command("gm", "convert", "-size", "256x256", abspath_in, "-auto-orient", "-resize", "256x256", path_out).Run()
+		if err == nil {
+			fmt.Printf("#%d thumb done by graphicsmagick\n", i)
+			continue
+		}
+		fmt.Printf("#%d graphicsmagick returned error. trying in pure go. error: %s\n", i, err.Error())
 		file_in, err := os.Open(abspath_in)
 		dieIfError(err)
 		config, _, err := image.DecodeConfig(file_in)
 		if err != nil {
-			fmt.Printf("WARNING. Could not decode image config '%s', skipping: %s\n", abspath_in, err)
+			fmt.Printf("#%d WARNING. Could not decode image config '%s', skipping: %s\n", abspath_in, err)
 			continue
 		}
 		file_in.Seek(0, os.SEEK_SET)
 		var img_in image.Image
 		img_in, _, err = image.Decode(file_in)
 		if err != nil {
-			fmt.Printf("WARNING. Could not decode image '%s', skipping: %s\n", abspath_in, err)
+			fmt.Printf("#%d WARNING. Could not decode image '%s', skipping: %s\n", i, abspath_in, err)
 			continue
 		}
 
@@ -92,11 +100,11 @@ func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
 			height = 256
 		}
 		img_out := imaging.Resize(img_in, width, height, imaging.CatmullRom)
-		fmt.Printf("[%d] --> %s\n", i, path_out)
 		file_out, err := os.Create(path_out)
 		if err != nil {
 			log.Fatal(err)
 		}
+		fmt.Printf("#%d thumb done in pure Go\n", i)
 		err = png.Encode(file_out, img_out)
 		file_out.Close()
 		dieIfError(err)
