@@ -15,6 +15,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -35,7 +36,7 @@ func dieIfError(err error) {
 }
 
 func IoWorker(dir_in string) (paths chan string) {
-	paths = make(chan string)
+	paths = make(chan string, 1000)
 	go func() {
 		list, err := ioutil.ReadDir(dir_in)
 		dieIfError(err)
@@ -61,6 +62,12 @@ func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
 		h := md5.New()
 		io.WriteString(h, fileUri_in)
 		pathmd5 := fmt.Sprintf("%x", h.Sum(nil))
+		path_out := fmt.Sprintf("%s/%s.png", out, pathmd5)
+		_, err := os.Stat(path_out)
+		if err == nil {
+			fmt.Printf("[%d] %s already exists! skipping\n", i, path_out)
+			continue
+		}
 		file_in, err := os.Open(abspath_in)
 		dieIfError(err)
 		config, _, err := image.DecodeConfig(file_in)
@@ -85,7 +92,6 @@ func ResizeWorker(i int, paths chan string, out string, wg *sync.WaitGroup) {
 			height = 256
 		}
 		img_out := resize.Resize(width, height, img_in, resize.NearestNeighbor)
-		path_out := fmt.Sprintf("%s/%s.png", out, pathmd5)
 		fmt.Printf("[%d] --> %s\n", i, path_out)
 		file_out, err := os.Create(path_out)
 		if err != nil {
@@ -108,6 +114,7 @@ func main() {
 	var wg sync.WaitGroup
 	paths := IoWorker(in)
 	var i int
+	runtime.GOMAXPROCS(resize_threads)
 	wg.Add(resize_threads)
 	for i = 1; i <= resize_threads; i++ {
 		go ResizeWorker(i, paths, out, &wg)
