@@ -61,10 +61,18 @@ func Resize(log_prefix string, abspath_in string, out string) (err error) {
 	pathmd5 := fmt.Sprintf("%x", h.Sum(nil))
 	path_out := fmt.Sprintf("%s/%s.png", out, pathmd5)
 	fmt.Printf("%s out: %s\n", log_prefix, path_out)
-	_, err = os.Stat(path_out)
+	stat_out, err := os.Stat(path_out)
 	if err == nil {
-		fmt.Printf("%s thumb already exists! skipping\n", log_prefix)
-		return nil
+		stat_in, err := os.Stat(abspath_in)
+		if err != nil {
+			return err
+		}
+		if stat_out.ModTime().After(stat_in.ModTime()) {
+			fmt.Printf("%s thumb already exists and up to date! skipping\n", log_prefix)
+			return nil
+		} else {
+			fmt.Printf("%s thumb exists but out of date. refreshing...\n", log_prefix)
+		}
 	}
 	err = exec.Command("gm", "convert", "-size", "256x256", abspath_in, "-auto-orient", "-resize", "256x256", path_out).Run()
 	if err == nil {
